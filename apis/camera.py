@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+from typing import Dict, List
+from pydantic import BaseModel
 
 from .wait_time import _count_people_from_image_b64, set_wait_for_hospital, get_wait_for_hospital
 
@@ -55,3 +57,19 @@ def get_latest_camera_estimate(hospital_id: str):
     if not rec:
         raise HTTPException(status_code=404, detail="No upload yet for this hospital")
     return CameraUploadResponse(**rec)  # type: ignore
+
+_CAMERA_REGISTRY: Dict[str, List[str]] = {}
+
+class RegisterIn(BaseModel):
+    hospital_id: str
+    camera_urls: List[str]
+
+@router.post("/register", summary="Register camera URLs to a hospital (in-memory, cleared on restart)")
+def register_cameras(body: RegisterIn):
+    _CAMERA_REGISTRY[body.hospital_id] = body.camera_urls
+    return {"ok": True, "hospital_id": body.hospital_id, "registered": len(body.camera_urls)}
+
+@router.get("/list/{hospital_id}")
+def list_cameras(hospital_id: str):
+    return {"hospital_id": hospital_id, "camera_urls": _CAMERA_REGISTRY.get(hospital_id, [])}
+

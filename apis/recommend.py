@@ -142,7 +142,7 @@ async def count_people_in_bytes(img: bytes) -> int:
     def _call():
         try:
             resp = _openai.chat.completions.create(
-                model=OPENAI_MODEL, messages=msgs, response_format={"type": "json_object"}, temperature=0)
+                model=OPENAI_MODEL, messages=msgs, response_format={"type": "json_object"})
             data = json.loads(resp.choices[0].message.content)
             return int(data.get("people", 0))
         except Exception:

@@ -17,7 +17,10 @@ def get_wait_for_hospital(hospital_id: str) -> Optional[Dict[str, Any]]:
     return _WAIT.get(hospital_id)
 
 # ---------------- People counting (OpenAI optional) -----------------
-OPENAI_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
+from dotenv import load_dotenv
+load_dotenv()  # ensure .env is loaded even if main.py didn't run first
+
+OPENAI_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-5-nano")  # fixed default
 _OPENAI_CLIENT = None
 try:
     from openai import OpenAI
@@ -26,42 +29,44 @@ try:
 except Exception:
     _OPENAI_CLIENT = None
 
-def _count_people_from_image_b64(img_b64: str) -> int:
+def is_openai_ready() -> bool:
+    return _OPENAI_CLIENT is not None
+
+def _count_people_from_image_b64(img_b64: str, *, require_openai: bool = False) -> int:
     """
-    Accepts raw base64 (no data: prefix). Returns a non-negative integer.
-    Falls back to a heuristic if OpenAI is not configured.
+    If require_openai=True and the OpenAI client isn't ready,
+    raise an error instead of using the heuristic fallback.
     """
     if _OPENAI_CLIENT is None:
-        # Heuristic fallback for demo
+        if require_openai:
+            raise RuntimeError("OpenAI vision is not configured or unavailable")
+        # ---- fallback heuristic (demo only) ----
         try:
-            import hashlib
+            import hashlib, random
             h = int(hashlib.sha256(img_b64[:1024].encode("utf-8")).hexdigest(), 16)
-            return (h % 8) + 1  # 1..8
-        except Exception:
+            random.seed(h)
             return random.randint(1, 8)
+        except Exception:
+            return 0
 
+    import json
     prompt = (
         "Count the number of distinct people visible in the photo. "
         "Return JSON like {\"people\": <integer>} with no extra text."
     )
-    try:
-        resp = _OPENAI_CLIENT.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
-                ],
-            }],
-            response_format={"type": "json_object"},
-            temperature=0,
-        )
-        data = json.loads(resp.choices[0].message.content)
-        val = int(data.get("people", 0))
-        return max(0, val)
-    except Exception:
-        return 0
+    resp = _OPENAI_CLIENT.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+            ],
+        }],
+        response_format={"type": "json_object"},
+    )
+    data = json.loads(resp.choices[0].message.content)
+    return max(0, int(data.get("people", 0)))
 
 # ---------------- FastAPI models + routes ---------------------------
 class CameraImage(BaseModel):
