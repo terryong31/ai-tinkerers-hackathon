@@ -5,9 +5,12 @@ from pydantic import BaseModel, Field
 import httpx
 
 from .wait_time import set_wait_for_hospital, get_wait_for_hospital
+import math
 
+RNG_DOCTORS_MIN = 1
+RNG_DOCTORS_MAX = 20
 RNG_MIN_PEOPLE = 20
-RNG_MAX_PEOPLE = 40
+RNG_MAX_PEOPLE = 80
 RNG_PER_PERSON_MIN = 8
 RNG_PER_PERSON_MAX = 15
 ENABLE_MOCK_RNG = os.getenv("MOCK_RNG_FOR_UNCOVERED", "1") != "0"
@@ -35,6 +38,7 @@ class SmartQuery(BaseModel):
     cameras_by_hospital: Optional[Dict[str, List[str]]] = None  # map hospital_id -> [image_url, ...]
 
 class SmartHospital(BaseModel):
+    active_doctors: Optional[int] = None
     hospital_id: str
     hospital_name: str
     google_maps_location_link: str
@@ -190,37 +194,41 @@ async def smart_nearby(q: SmartQuery):
                 if ENABLE_MOCK_RNG:
                     rng_people = random.randint(RNG_MIN_PEOPLE, RNG_MAX_PEOPLE)
                     per_person = random.randint(RNG_PER_PERSON_MIN, RNG_PER_PERSON_MAX)
-                    est = int(rng_people * per_person)
+                    doctors    = random.randint(RNG_DOCTORS_MIN, RNG_DOCTORS_MAX)
+                    est        = int(math.ceil(rng_people / max(1, doctors)) * per_person)
+
                     set_wait_for_hospital(h.hospital_id, {
-                        "hospital_id": h.hospital_id,
-                        "people": rng_people,
-                        "per_person_minutes": per_person,
-                        "estimated_wait_minutes": est,
-                        "cameras": [{"camera_id": "rng", "people": rng_people}],
+                    "hospital_id": h.hospital_id,
+                    "people": rng_people,
+                    "per_person_minutes": per_person,
+                    "doctors_working": doctors,
+                    "estimated_wait_minutes": est,
+                    "cameras": [{"camera_id": "rng", "people": rng_people}],
                     })
-                    recent = get_wait_for_hospital(h.hospital_id)
                     h.current_people = rng_people
                     h.per_person_minutes = per_person
+                    h.active_doctors = doctors
                     h.estimated_wait_minutes = est
-                    h.wait_last_updated = recent["ts"] if recent else None
                     return
                 # <<< DEMO RNG
             # If we do have camera URLs, count as before
             people = await count_people_from_cameras(camera_urls, client=client)
             per_person = 10 if people == 0 else random.randint(8, 15)
-            est = int(people * per_person)
+            prev = get_wait_for_hospital(h.hospital_id) or {}
+            doctors = prev.get("doctors_working") or random.randint(RNG_DOCTORS_MIN, RNG_DOCTORS_MAX)
+            est = int(math.ceil(people / max(1, doctors)) * per_person)
             set_wait_for_hospital(h.hospital_id, {
-                "hospital_id": h.hospital_id,
-                "people": people,
-                "per_person_minutes": per_person,
-                "estimated_wait_minutes": est,
-                "cameras": [{"camera_id": url, "people": None} for url in camera_urls],
+            "hospital_id": h.hospital_id,
+            "people": people,
+            "per_person_minutes": per_person,
+            "doctors_working": doctors,
+            "estimated_wait_minutes": est,
+            "cameras": [{"camera_id": url, "people": None} for url in camera_urls],
             })
-            recent = get_wait_for_hospital(h.hospital_id)
             h.current_people = people
             h.per_person_minutes = per_person
+            h.active_doctors = doctors
             h.estimated_wait_minutes = est
-            h.wait_last_updated = recent["ts"] if recent else None
             
         sem = asyncio.Semaphore(6)
         async def guarded_enrich(h: SmartHospital):

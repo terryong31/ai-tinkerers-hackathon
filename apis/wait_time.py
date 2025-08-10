@@ -93,7 +93,7 @@ def upload_wait_time(payload: WaitTimeIn):
     if not payload.hospital_id:
         raise HTTPException(400, "hospital_id required")
 
-    per_person = payload.per_person_minutes or random.randint(8, 15)
+    per_person = payload.per_person_minutes or random.randint(11,20)
     people_counts = []
     cam_records: List[Dict[str, Any]] = []
     for i, cam in enumerate(payload.cameras or []):

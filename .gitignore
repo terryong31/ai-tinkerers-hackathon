@@ -1,2 +1,5 @@
 .env
 **/__pycache__/
+camera_agent_2.py
+**/__init__.py/
+api_test_output.txt

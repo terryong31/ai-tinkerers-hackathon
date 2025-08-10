@@ -38,4 +38,4 @@ def health():
 
 if __name__ == "__main__":
     # Change port per laptop, e.g. 9001, 9002
-    uvicorn.run(app, host="172.20.10.9", port=9002)
+    uvicorn.run(app, host="0.0.0.0", port=9002)
