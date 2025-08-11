@@ -1,6 +1,6 @@
 # AI Tinkerers Hackathon
 
-Welcome to the **AI Tinkerers Hackathon** repository! This project is focused on utilizing AI to enhance healthcare efficiency by estimating hospital wait times and providing recommendations based on real-time data.
+Welcome to the **ASEAN AI Summit Buildathon** Backend repository! This project is focused on utilizing AI to enhance healthcare efficiency by estimating hospital wait times and providing recommendations based on real-time data.
 
 ## Overview
 
