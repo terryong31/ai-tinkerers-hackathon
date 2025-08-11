@@ -1,6 +1,6 @@
-# AI Tinkerers Hackathon
+# ASEAN AI Summit Buildathon
 
-Welcome to the **ASEAN AI Summit Buildathon** Backend repository! This project is focused on utilizing AI to enhance healthcare efficiency by estimating hospital wait times and providing recommendations based on real-time data.
+Welcome to the **ASEAN AI Summit Buildathon** backend repository! This project is focused on utilizing AI to enhance healthcare efficiency by estimating hospital wait times and providing recommendations based on real-time data.
 
 ## Overview
 
@@ -29,36 +29,50 @@ The repository is a Python-based solution that processes data from hospital came
 
 ## Algorithms and Techniques
 
-### Wait Time Estimation
-The wait time estimation is calculated using the following logic:
-1. Decode base64 images to count the number of people in the waiting area.
+### Wait Time Estimation (with parallel doctors)
+
+We treat each hospital as a single queue served by **c** doctors in parallel. When we can, we count people from **live camera frames**; otherwise we use the **MySQL cache** or a bounded **RNG** fallback.
+
+**Steps**
+
+1. **Capture & count (primary hospital only when stale/missing)**
+
+   * Grab fresh JPEGs from `PRIMARY_CAMERA_URLS` and Base64 them.
+   * Count people with OpenAI Vision and parse `{"people": <int>}`.
+   * Persist to MySQL with `wait_last_updated` (so RNG never overwrites it while fresh).
+
    ```python
-   n = _count_people_from_image_b64(cam.image_b64)
-   ```
-2. Use a random fallback or predefined values if real-time data is unavailable:
-   ```python
-   per_person = payload.per_person_minutes or random.randint(11, 20)
-   ```
-3. Total estimated wait time:
-   ```python
-   est_wait = int(total_people * per_person)
+   img_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+   people  = _count_people_from_image_b64(img_b64, require_openai=True)  # strict, JSON result
    ```
 
-### Drive ETA Calculation
-1. Uses the Google Distance Matrix API for travel time estimates:
+2. **Doctors working (capacity)**
+
+   * Reuse `doctors_working` from MySQL if present, else RNG **1–20** for the day.
+   * This models parallel service (multiple patients at once).
+
+3. **Per‑patient minutes**
+
+   * For camera: `PER_PERSON_FOR_CAMERA` (env, e.g. 10).
+   * For RNG fallback: bounded RNG **8–15** minutes.
+
+4. **Queue time (parallel)**
+   We approximate the rounds of service using **ceiling**:
+
    ```python
-   url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
-   ```
-2. Parses and converts the returned duration (in seconds) from the API to minutes:
-   ```python
-   eta_min = round(float(dur.rstrip("s")) / 60.0, 1)
+   from math import ceil
+   wait_minutes = int(ceil(people / max(1, doctors_working)) * per_person_minutes)
    ```
 
-### Total ETA Calculation
-Combines both wait time and drive ETA:
-```python
-h.total_time_minutes = float(h.eta_minutes) + float(wait)
-```
+   Examples
+
+   * `people=26, doctors=5, per_person=12 → ceil(26/5)=6 → 6*12 = 72 min`
+   * `people=8, doctors=2, per_person=10 → ceil(8/2)=4 → 4*10 = 40 min`
+
+5. **Cache freshness (5‑minute TTL)**
+
+   * If `wait_last_updated` ≤ `CACHE_TTL_SECONDS` (default 300s), we **reuse** the row (no camera call).
+   * RNG is used **only** when no fresh wait exists; it never overwrites fresh camera data.
 
 ---
 
